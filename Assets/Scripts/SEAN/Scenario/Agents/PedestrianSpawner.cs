@@ -16,6 +16,13 @@ namespace SEAN.Scenario.Agents
         public PedestrianModulator.PersonalityType personality = PedestrianModulator.PersonalityType.Indifferent;
         public int count;
         public List<Transform> spawnPoints;
+
+        // Patrol is orthogonal to personality (not a PersonalityType case) -- e.g. a
+        // Surprised patroller still reacts to the robot, it just resumes ping-ponging
+        // between patrolPointA/patrolPointB afterwards. See PedestrianModulator.EnablePatrol().
+        public bool patrol = false;
+        public Transform patrolPointA;
+        public Transform patrolPointB;
     }
 
     /// <summary>
@@ -108,16 +115,30 @@ namespace SEAN.Scenario.Agents
             agent.transform.rotation = pose.rotation;
             agent.transform.parent = agentsGO.transform;
 
+            bool patrolValid = group.patrol && group.patrolPointA != null && group.patrolPointB != null;
+            if (group.patrol && !patrolValid)
+            {
+                Debug.LogError("PedestrianSpawner: group '" + group.label + "' has patrol enabled but patrolPointA/patrolPointB is missing, falling back to random walk.");
+            }
+
             // Indifferent = no modulator component at all, Base.ModulateVelocity() then
-            // no-ops via a null GetComponent<IVelocityModulator>() result.
-            if (group.personality != PedestrianModulator.PersonalityType.Indifferent)
+            // no-ops via a null GetComponent<IVelocityModulator>() result. Patrol groups
+            // attach the modulator even when Indifferent -- Indifferent modulation is a
+            // passthrough (Modulate()'s Indifferent case just returns
+            // Scale(socialForceVelocity)), and the patrol ping-pong check runs ahead of
+            // that switch regardless of personality (see PedestrianModulator.Modulate()).
+            if (group.personality != PedestrianModulator.PersonalityType.Indifferent || patrolValid)
             {
                 var modulator = agent.gameObject.AddComponent<PedestrianModulator>();
                 modulator.personality = group.personality;
+                if (patrolValid)
+                {
+                    modulator.EnablePatrol(group.patrolPointA.position, group.patrolPointB.position);
+                }
             }
 
             agents.Add(agent);
-            agent.InitDest(Util.Navmesh.RandomPose().position);
+            agent.InitDest(patrolValid ? group.patrolPointA.position : Util.Navmesh.RandomPose().position);
             return agent;
         }
     }
